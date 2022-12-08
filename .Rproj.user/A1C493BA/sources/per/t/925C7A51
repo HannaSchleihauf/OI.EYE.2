@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1599112556861.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "405189270",
+    "id" : "925C7A51",
+    "lastKnownWriteTime" : 1603222250,
+    "last_content_update" : 1603222250859,
+    "path" : "~/Dropbox/Research/My Projects/OI/OI_EYE_2/analysis/OI_EYE_2/behavior~face.mean.R",
+    "project_path" : "behavior~face.mean.R",
+    "properties" : {
+        "cursorPosition" : "429,0",
+        "scrollLine" : "417",
+        "tempName" : "Untitled2"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

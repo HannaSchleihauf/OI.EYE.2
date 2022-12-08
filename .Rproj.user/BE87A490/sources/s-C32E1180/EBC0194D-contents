@@ -1,0 +1,430 @@
+library(lme4)
+library(effects)
+library(emmeans)
+library("GGally")
+library("reshape2")
+library("compiler")
+library("parallel")
+library("boot")
+library("lattice")
+library("lme4")
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library("gridExtra")
+library("cowplot")
+library("grid")
+library(ggbeeswarm)
+library("zoo")
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/diagnostic_fcns.r")
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/glmm_stability.r")
+Nth.delete<-function(dataframe, n)dataframe[-(seq(n,to=nrow(dataframe),by=n)),]
+
+xdata=read.table(file="/Users/hannaschleihauf/Dropbox/Research/My Projects/OI/OI_EYE_2/data/Variables.complete.txt", header=T, sep="\t")
+
+str(xdata)
+xdata$prop.time = xdata$aoi.time/xdata$time.fixations.screen
+range(xdata$prop.time, na.rm = T)
+xdata$prop.time[is.na(xdata$prop.time)] <- 0
+xdata$aoi = as.factor(xdata$aoi)
+xdata$child.adult = as.factor(xdata$child.adult)
+xdata$box = as.factor(xdata$box)
+xdata$trial.overall = as.numeric(as.factor(paste(xdata$box, xdata$trial, sep = ".")))
+xdata$single.id = as.factor(xdata$single.id)
+
+##creating a data frame with only NC and PI
+xxdata = subset(xdata, aoi == "face" & (action == "PI" | action == "NC"))
+str(xxdata)
+
+plot(xxdata$prop.time[xxdata$trial == "1"], xxdata$behavior[xxdata$trial == "1"])
+
+##creating a new data frame with the mean of looking time (otherwise 3 predictor measurements and only 1 response measurement)
+prop.time.mean = zoo::rollapply(xxdata$prop.time, width = 3, mean, by = 3)
+yydata = Nth.delete(xxdata, 3)
+yydata = Nth.delete(yydata, 2)
+yydata = subset(yydata, select=-c(prop.time, time.fixations.screen, time.demo, aoi.time, trial))
+yydata$prop.time.mean = prop.time.mean
+
+nlevels(as.factor(yydata$single.id[yydata$child.adult == "child" & yydata$behavior != "NA"]))
+nlevels(as.factor(yydata$single.id[yydata$child.adult == "parent"& yydata$behavior != "NA"]))
+
+##
+xx.fe.re=fe.re.tab(fe.model="behavior ~ prop.time.mean*action*child.adult + box + trial.overall",
+                   re="(1|dyad.id) + (1|single.id)", data=yydata)
+#time.screen only added that I have in in t.data
+xx.fe.re$summary
+t.data=xx.fe.re$data 
+str(t.data)
+
+as.factor(yydata$single.id)
+
+
+levels(yydata$single.id)[2]
+
+#centering variables included in random slope
+t.data$child.adult.code = as.numeric(t.data$child.adult)-mean(as.numeric(t.data$child.adult))
+t.data$z.prop.time.mean = scale(t.data$prop.time.mean)
+t.data$action.PI.code = t.data$action.PI-mean(t.data$action.PI)
+t.data$z.box = scale(as.numeric(t.data$box))
+
+##starting with the model  ##soll trial nur control variable sein? --> Ja!
+##formualte full model
+library("optimx")
+contr=glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=10000000))
+#contr = glmerControl(optimizer = "optimx", 
+#                     optCtrl = list(method = "nlminb", starttests = FALSE, kkt = FALSE))
+
+### first we also added z.box (number of trials as random slope within single.id, however models didn't converge, so we took it out)
+
+full = glmer(behavior ~ (z.prop.time.mean + action + child.adult)^3 + 
+               (1 + action.PI.code+z.prop.time.mean  || single.id) +
+               (1 + child.adult.code || dyad.id),
+             data = t.data, control = contr, family = binomial)
+
+length(yydata)
+
+summary(full)$coefficients
+
+full4 = glmer(behavior ~ (z.prop.time.mean + action + child.adult)^3 + 
+                (1 + action.PI.code + z.prop.time.mean || single.id),
+              data = t.data, control = contr, family = binomial)
+
+full2 = glmer(behavior ~ (z.prop.time.mean + action + child.adult)^2 + 
+                (1 + action.PI.code + z.prop.time.mean  || single.id) +
+                (1 + child.adult.code || dyad.id),
+              data = t.data, control = contr, family = binomial)
+
+full3 = glmer(behavior ~ (z.prop.time.mean + action + child.adult) + 
+                (1 + action.PI.code + z.prop.time.mean  || single.id) +
+                (1 + child.adult.code || dyad.id),
+              data = t.data, control = contr, family = binomial)
+
+tests=drop1p(model.res=full2, para=F, data=t.data, contr=contr, n.cores=c("all-1", "all"), to.del=NULL)
+round(tests$drop1.res, 3)
+
+summary(full)$varcor
+ranef.diagn.plot(full)
+
+#look at the fixed effects
+round(summary(full)$coefficients, 3)
+
+## checking absence of overdispersion
+overdisp.test(full) #underdispersed
+
+##check for colliniarity
+xx=lm(behavior ~ z.prop.time.mean + action + child.adult,
+      data=t.data)
+library("car")
+vif(xx)
+
+## checking model stability  ##only model with only main effects is stable
+m.stab.b=glmm.model.stab(model.res=full, contr=contr, use=c("single.id"))  
+m.stab.b$detailed$warnings
+xx=as.data.frame(round(m.stab.b$summary[, -1], 3))
+m.stab.plot(round(m.stab.b$summary[, -1], 3))
+write.table(xx, "OI_EYE2_behavior.stab.txt",quote=FALSE, sep = "\t")
+##only looking at models that converged
+library("biganalytics")
+m.stab.conv = subset(m.stab.b$detailed, m.stab.b$detailed$warnings == "none")
+round(colmin(as.big.matrix(m.stab.conv)),3)
+round(colmax(as.big.matrix(m.stab.conv)),3)
+
+##this revealed that we two influenctal cases. We remove these two cases and run the model again.
+#7.child 
+#15.child
+#21.parent
+
+t.data.red = subset(t.data, t.data$single.id != "7.child" | t.data$single.id != "15.child" |
+                      t.data$single.id != "21.parent")
+full.red = glmer(behavior ~ (z.prop.time.mean + action + child.adult)^3 + 
+                   (1 + action.PI.code + z.prop.time.mean || single.id),
+                 data = t.data.red, control = contr, family = binomial)
+
+tests=drop1p(model.res=full.red, para=F, data=t.data.red, contr=contr, n.cores=c("all-1", "all"), to.del=NULL)
+round(tests$drop1.res, 3)
+##even when exluding these cases, results don't change
+
+
+##model stability with the model that includes all indiviudals but only main effects. 
+m.stab.b=glmm.model.stab(model.res=full3, contr=contr, use=c("single.id"))  
+m.stab.b$detailed$warnings
+xx=as.data.frame(round(m.stab.b$summary[, -1], 3))
+m.stab.plot(round(m.stab.b$summary[, -1], 3))
+write.table(xx, "OI_EYE2_behavior.stab.txt",quote=FALSE, sep = "\t")
+##only looking at models that converged
+library("biganalytics")
+m.stab.conv = subset(m.stab.b$detailed, m.stab.b$detailed$warnings == "none")
+round(colmin(as.big.matrix(m.stab.conv)),3)
+round(colmax(as.big.matrix(m.stab.conv)),3)
+
+#Null model comparison to see whether the all predictors taken together explain more of the variance than the intercept alone
+null=glmer(behavior ~ 1 +
+             (1 + action.PI.code + z.prop.time.mean  || single.id) +
+             (1 + child.adult.code || dyad.id),
+           data = t.data, control = contr, family = binomial)
+anova(full, null, test="Chisq")
+
+##Reduced model comparison 
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/drop1_para.r") #drop1.para behält die contr bei 
+tests=drop1p(model.res=full, para=F, data=t.data, contr=contr, n.cores=c("all-1", "all"), to.del=NULL)
+round(tests$drop1.res, 3)
+
+
+
+
+####Plots
+####
+plotmodel1 = glmer(behavior ~ (z.prop.time.mean + action.PI.code + child.adult.code) + 
+                     (1 + action.PI.code + z.prop.time.mean  || single.id.code) +
+                     (1 + child.adult.code || dyad.id),
+                   data = t.data, control = contr, family = binomial)
+
+plotmodel2 = glmer(behavior ~ (z.prop.time.mean + action + child.adult.code) + 
+                     (1 + action.PI.code + z.prop.time.mean  || single.id.code) +
+                     (1 + child.adult.code || dyad.id),
+                   data = t.data, control = contr, family = binomial)
+
+plotmodel3 = glmer(behavior ~ (z.prop.time.mean + action.PI.code + child.adult) + 
+                     (1 + action.PI.code + z.prop.time.mean  || single.id.code) +
+                     (1 + child.adult.code || dyad.id),
+                   data = t.data, control = contr, family = binomial)
+##bootstraps for plotmodel
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/boot_glmm.r")
+#boot.plot1=boot.glmm.pred(model.res=plotmodel1, excl.warnings=T, nboots=1000, para=F, resol=100, level=0.95, use=c("z.prop.time.mean"))
+#boot.plot2=boot.glmm.pred(model.res=plotmodel2, excl.warnings=T, nboots=1000, para=F, resol=100, level=0.95, use=c("action"))
+#boot.plot3=boot.glmm.pred(model.res=plotmodel3, excl.warnings=T, nboots=1000, para=F, resol=100, level=0.95, use=c("child.adult"))
+load("plots_behavior")
+
+#PLOT 1: interaction time*action
+summary(plotmodel1)$coefficients[,1]
+#save coefficent values, so we can use them in an equation 
+# save the coefficient values so we can use them in the equations
+b0 = summary(plotmodel1)$coefficients[1,1]# intercept
+Xztime = summary(plotmodel1)$coefficients[2,1]
+XactionPI = summary(plotmodel1)$coefficients[3,1]
+Xadult  = summary(plotmodel1)$coefficients[4,1]
+
+Xtime_range <- seq(from=min(t.data$z.prop.time.mean), to=max(t.data$z.prop.time.mean), length.out = 100)
+range(Xtime_range)
+
+response_logits <- b0 + 
+  Xztime*Xtime_range + 
+  XactionPI*0 + 
+  Xadult*0
+
+# PI_logits_adult <- b0 + 
+#   Xztime*Xtime_range + 
+#   XactionPI*1 + 
+#   Xadult*1 +
+#   XztimeXactionPI*Xtime_range + 
+#   XztimeXadult*Xtime_range + # the reference group
+#   XactionPIXadult*1 + 
+#   XztimeXactionPIXadult*Xtime_range
+
+# Compute the probibilities (this is what will actually get plotted):
+response_probs <- plogis(response_logits)
+
+plot.data <- data.frame(looking.time=time_probs, time.range=Xtime_range)
+#plot.data <- gather(plot.data, key=group, value=prob)
+str(plot.data)
+
+# plot.data.NC.child <- subset(plot.data, plot.data$group == "NC_child")
+# plot.data.PI.child <- subset(plot.data, plot.data$group == "PI_child")
+# plot.data.NC.adult <- subset(plot.data, plot.data$group == "NC_adult")
+# plot.data.PI.adult <- subset(plot.data, plot.data$group == "PI_adult")
+
+# NC.data.child = subset(t.data, t.data$action == "NC" & t.data$child.adult == "child")
+# PI.data.child = subset(t.data, t.data$action == "PI" & t.data$child.adult == "child")
+# NC.data.adult = subset(t.data, t.data$action == "NC" & t.data$child.adult == "parent")
+# PI.data.adult = subset(t.data, t.data$action == "PI" & t.data$child.adult == "parent")
+
+##to get a feeling how it looks like
+plot(t.data$prop.time.mean, t.data$behavior)
+
+boot.res.plot1=as.data.frame(boot.plot1$ci.predicted)
+boot.res.plot2=as.data.frame(boot.plot2$ci.predicted)
+boot.res.plot3=as.data.frame(boot.plot3$ci.predicted)
+
+boot.res.plot1$xvals <- 
+  seq(from=min(t.data$z.prop.time.mean), to=max(t.data$z.prop.time.mean), length.out = 100)
+
+##y axis labels
+range(t.data$prop.time.mean)
+percentage.labels= c("0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%")
+percentage.comma = seq(from = 0, to = 0.8, length.out = 9)
+##and a vector in z-space at which they need to be displayed
+percentage.ticks=
+  (percentage.comma - mean(t.data$prop.time.mean))/
+  sd(t.data$prop.time.mean)
+
+
+dev.off()
+library(ggplot2)
+#time plot
+theme_set( theme_gray())  # pre-set the bw theme.
+g1 <- ggplot()
+g1 <- g1 + geom_jitter(data = t.data , aes(x = z.prop.time.mean, y = behavior, colour = action), width = 0.025, height = 0.025, alpha = 0.4)
+g1 = g1 + geom_ribbon(data=boot.res.plot1,
+                      aes(x = z.prop.time.mean,
+                          ymin = lower.cl,
+                          ymax = upper.cl),
+                      alpha = 0.5,
+                      fill="grey50")
+g1 = g1 + geom_line(data=boot.res.plot1, 
+                    aes(x=z.prop.time.mean, y=fitted), colour="grey40", lwd=1)
+g1 = g1 +  scale_x_continuous(breaks = percentage.ticks, 
+                              labels =  percentage.labels)
+g1 = g1 + scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+g1 = g1 + labs(subtitle="Main Effect of Face-Looking Time", 
+               y="Probability to Over-imitate", 
+               x="Percentage of Looking Time into the Face", 
+               title=element_blank())
+g1 = g1 + theme(legend.title = element_blank(), 
+                axis.text.x = element_text(size = 8, face=NULL, 
+                                           margin = margin(t = 1, r = 0, b = 1, l = 0, 
+                                                           unit = "mm")), 
+                axis.text.y = element_text(size = 8, face=NULL,
+                                           margin = margin(t = 0, r = 1, b = 0, l = 1, 
+                                                           unit = "mm")),
+                axis.title.x = element_text(size = 10, face=NULL,
+                                            margin = margin(t = 1.5, r = 1, b = 0, l = 0, 
+                                                            unit = "mm")),
+                axis.title.y = element_text(size = 10, face=NULL,
+                                            margin = margin(t = 1.5, r = 0, b = 0, l = 0, 
+                                                            unit = "mm")))
+g1 = g1 + scale_color_manual(values = c("#EE2C2C", "#43CD80", "#2297E6"))
+g1
+
+#action plot
+t.data$fitted = as.numeric((t.data$behavior))
+str(t.data)
+theme_set( theme_gray())  # pre-set the bw theme.
+g2 <- ggplot(data = t.data , aes(x = action, y = fitted, colour = action))
+g2 <- g2 + geom_jitter(width = 0.45, height = 0.025, alpha = 0.3)
+g2 <- g2 + geom_errorbar(aes(x=c("NC"), 
+                             ymin=c(boot.res.plot2$lower.cl[boot.res.plot2$action == "NC"]),
+                             ymax=c(boot.res.plot2$upper.cl[boot.res.plot2$action == "NC"])),
+                         width=.125, colour="red",
+                         position=position_dodge(0.9))
+g2 <- g2 + geom_errorbar(aes(x=c("PI"), 
+                             ymin=c(boot.res.plot2$lower.cl[boot.res.plot2$action == "PI"]),
+                             ymax=c(boot.res.plot2$upper.cl[boot.res.plot2$action == "PI"])),
+                         width=.125, colour="springgreen4",
+                         position=position_dodge(0.9))
+g2 <- g2 + geom_crossbar(data=boot.res.plot2,
+                         aes(ymin= c(fitted),
+                             ymax= c(fitted)), 
+                         width=0.5, colour= c("red", "springgreen4"))
+g2 = g2 + scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+g2 = g2 + theme(legend.position = "none")
+g2 = g2 +  labs(subtitle="Main Effect of Action Type", 
+                y="Probability to Over-imitate",
+                x="Action Type", 
+                title=element_blank())
+g2 = g2 + scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+g2 = g2 + theme(legend.title = element_blank(),
+                axis.text.x = element_text(size = 8, face=NULL, 
+                                           margin = margin(t = 1, r = 0, b = 1, l = 0, 
+                                                           unit = "mm")), 
+                axis.text.y = element_text(size = 8, face=NULL,
+                                           margin = margin(t = 0, r = 1, b = 0, l = 1, 
+                                                           unit = "mm")),
+                axis.title.x = element_text(size = 10, face=NULL,
+                                            margin = margin(t = 1.5, r = 1, b = 0, l = 0, 
+                                                            unit = "mm")),
+                axis.title.y = element_text(size = 10, face=NULL,
+                                            margin = margin(t = 1.5, r = 0, b = 0, l = 0, 
+                                                            unit = "mm")))
+g2 = g2 + scale_color_manual(values = c("#EE2C2C", "#43CD80", "#2297E6"))
+g2
+
+#plot child.adult 
+t.data$fitted = as.numeric((t.data$behavior))
+str(t.data)
+theme_set( theme_gray())  # pre-set the bw theme.
+g3 <- ggplot(data = t.data , aes(x = child.adult, y = fitted, colour = action))
+g3 <- g3 + geom_jitter(width = 0.40, height = 0.025, alpha = 0.3)
+g3 <- g3 + geom_errorbar(aes(x=c("child"), 
+                             ymin=c(boot.res.plot3$lower.cl[boot.res.plot3$child.adult == "child"]),
+                             ymax=c(boot.res.plot3$upper.cl[boot.res.plot3$child.adult == "child"])),
+                         width=.125, colour="grey50",
+                         position=position_dodge(0.9))
+g3 <- g3 + geom_errorbar(aes(x=c("parent"), 
+                             ymin=c(boot.res.plot3$lower.cl[boot.res.plot3$child.adult == "parent"]),
+                             ymax=c(boot.res.plot3$upper.cl[boot.res.plot3$child.adult == "parent"])),
+                         width=.125, colour="grey50",
+                         position=position_dodge(0.9))
+g3 <- g3 + geom_crossbar(data=boot.res.plot3,
+                         aes(ymin= c(fitted[boot.res.plot3$child.adult == "child"], 
+                                     fitted[boot.res.plot3$child.adult == "parent"]),
+                             ymax= c(fitted[boot.res.plot3$child.adult == "child"], 
+                                     fitted[boot.res.plot3$child.adult == "parent"])), 
+                         width=0.5, colour= c("grey50", "grey50"))
+g3 = g3 +  labs(subtitle="Main Effect of Age Group", 
+                y="Probability to Over-imitate",
+                x="Age Group", 
+                title=element_blank())
+g3 = g3 + scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+g3 = g3 + theme(legend.title = element_blank(),
+                axis.text.x = element_text(size = 8, face=NULL, 
+                                           margin = margin(t = 1, r = 0, b = 1, l = 0, 
+                                                           unit = "mm")), 
+                axis.text.y = element_text(size = 8, face=NULL,
+                                           margin = margin(t = 0, r = 1, b = 0, l = 1, 
+                                                           unit = "mm")),
+                axis.title.x = element_text(size = 10, face=NULL,
+                                            margin = margin(t = 1.5, r = 1, b = 0, l = 0, 
+                                                            unit = "mm")),
+                axis.title.y = element_text(size = 10, face=NULL,
+                                            margin = margin(t = 1.5, r = 0, b = 0, l = 0, 
+                                                            unit = "mm")), 
+                plot.title = element_text(hjust = 0.5, size = 10, face="bold", 
+                                          margin = margin(t = 0, r = 0, b = 1.5, l = 0, 
+                                                          unit = "mm")))
+g3 = g3 + scale_color_manual(values = c("#EE2C2C", "#43CD80", "#2297E6"))
+g3
+
+
+plot_row1 <- plot_grid(g1, labels = c("A"), axis = "b", rel_widths = c(1))
+plot_row2 <- plot_grid(g2, g3, align = "h", nrow = 1, ncol = 2, 
+                       labels = c("B", "C"), axis = "b", rel_widths = c(1, 1.3))
+
+
+# now add the title
+title <- ggdraw() +
+  draw_label(
+    "Analysis 3: Behavioral Analysis - Experimental Conditions",
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+plot_grid(
+  title, plot_row1, plot_row2, align = "v",
+  nrow = 3,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.1, 1, 1))
+
+plogis(0.8)
+
+
+##########Split data set in both conditions and alayze seperatly
+t.data.NC = subset(t.data, t.data$action == "NC")
+t.data.PI = subset(t.data, t.data$action == "PI")
+
+full.NC = glmer(behavior ~ (z.prop.time.mean ) + 
+                  (1 + z.prop.time.mean  || single.id),
+                data = t.data.NC, control = contr, family = binomial)
+tests=drop1p(model.res=full.NC, para=F, data= t.data.NC, contr=contr, n.cores=c("all-1", "all"), to.del=NULL)
+round(tests$drop1.res, 3)
+
+full.PI = glmer(behavior ~ (z.prop.time.mean ) + 
+                  (1 + z.prop.time.mean  || single.id),
+                data = t.data.PI, control = contr, family = binomial)
+
+tests=drop1p(model.res=full.PI, para=F, data=t.data.PI, contr=contr, n.cores=c("all-1", "all"), to.del=NULL)
+round(tests$drop1.res, 3)

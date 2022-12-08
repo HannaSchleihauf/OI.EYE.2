@@ -1,0 +1,16 @@
+orig	min	max
+(Intercept)	-2.203	-31.692	-1.967
+z.prop.time.mean	-1.12	-27.679	-0.85
+actionPI	4.153	3.714	49.154
+child.adultparent	-3.047	-24.712	-2.568
+z.prop.time.mean:actionPI	-3.652	-55.523	0.335
+z.prop.time.mean:child.adultparent	0.166	-7.967	16.852
+actionPI:child.adultparent	-0.303	-13.469	0.329
+z.prop.time.mean:actionPI:child.adultparent	3.799	2.605	56.175
+single.id@(Intercept)@NA	2.795	1.84	63.104
+single.id@action.PI.code@NA	0	0	43.027
+single.id@z.prop.time.mean@NA	0	0	49.469
+dyad.id@(Intercept)@NA	1.298	0	31.821
+dyad.id@child.adult.code@NA	0.001	0	93.016
+box.id@(Intercept)@NA	1.113	0.988	17.675
+box.id@action.PI.code@NA	2.981	2.684	43.576

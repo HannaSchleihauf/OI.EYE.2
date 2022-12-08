@@ -1,0 +1,11 @@
+A_box1	B_box1	A_box2	B_box2	A_box3	B_box3	A_box4	B_box4
+1. Box1_Intro	1.Box1_Intro	Box2_Intro	Box2_Intro	1.Box3_Intro	1.Box3_Intro	1.Box4_Intro	1.Box4_Intro
+1.Box1_NC1 (1)	1.Box1_PI1 (2)	1.Box2_PI	1.Box2_NC	1.Box3_PI (1)	1.Box3_NC2 (1)	1.Box4_NC3 (1)	1.Box4_PI1 (1)
+1.Box1_R (4)	1.Box1_R (5)	1.Box2_R (3)	1.Box2_R (3)	1.Box3_R (1)	1.Box3_R (1)	1.Box4_R (1)	1.Box4_R (1)
+1.Box1_SM (1)	1.Box1_SM (2)	1.Box2_SM (1)	1.Box2_SM (1)	1.Box3_SM	1.Box3_SM	1.Box4_SM	1.Box4_SM
+2.Box1_NC1 (1)	2.Box1_PI1 (2)	2.Box2_PI	2.Box2_NC	2.Box3_PI (1)	2.Box3_NC2 (1)	2.Box4_NC3 (1)	2.Box4_PI1 (1)
+2.Box1_R (4)	2.Box1_R (5)	2.Box2_R (3)	2.Box2_R (3)	2.Box3_R (1)	2.Box3_R (1)	2.Box4_R (1)	2.Box4_R (1)
+2.Box1_SM (1)	2.Box1_SM (2)	2.Box2_SM (1)	2.Box2_SM (1)	2.Box3_SM	2.Box3_SM	2.Box4_SM	2.Box4_SM
+3.Box1_NC1 (1)	3.Box1_PI1 (2)	3.Box2_PI	3.Box2_NC	3.Box3_PI (1)	3.Box3_NC2 (1)	3.Box4_NC3 (1)	3.Box4_PI1 (1)
+3.Box1_R (4)	3.Box1_R (5)	3.Box2_R (3)	3.Box2_R (3)	3.Box3_R (1)	3.Box3_R (1)	3.Box4_R (1)	3.Box4_R (1)
+3.Box1_SM (1)	3.Box1_SM (2)	3.Box2_SM (1)	3.Box2_SM (1)	3.Box3_SM	3.Box3_SM	3.Box4_SM	3.Box4_SM

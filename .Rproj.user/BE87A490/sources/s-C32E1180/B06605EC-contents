@@ -1,0 +1,307 @@
+###here the response variable is the looking time into the models face devided by the fixation time on the screen per individual per trial
+
+library("lme4")
+library("effects")
+library("glmmTMB")
+library("emmeans")
+library("dplyr")
+library("tidyr")
+library("tidyverse")
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/diagnostic_fcns.r")
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/boot_glmmTMB.r")
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/drop1_para_glmmtmb.r")
+?glmmTMB
+xdata=read.table(file="/Users/HannaSchleihauf/Dropbox/Research/Projects/OI/OI_EYE_2/data/Variables.complete.txt", header=T, sep="\t")
+
+str(xdata)
+sum(xdata$time.fixations.screen < xdata$aoi.time)
+range(xdata$aoi.time)
+
+str(xdata)
+xdata$prop.time = xdata$aoi.time/xdata$time.fixations.screen
+range(xdata$prop.time, na.rm = T)
+xdata$prop.time[is.na(xdata$prop.time)] <- 0
+xdata$aoi = as.factor(xdata$aoi)
+xdata$child.adult = as.factor(xdata$child.adult)
+xdata$box = as.factor(xdata$box)
+xdata$trial.overall = as.numeric(as.factor(paste(xdata$box, xdata$trial, sep = ".")))
+
+nlevels(as.factor(xdata$single.id[xdata$child.adult == "child"]))
+nlevels(as.factor(xdata$single.id[xdata$child.adult == "parent"]))
+
+
+
+nrow(xdata$time.fixations.screen)
+
+
+##only face AOI and actions
+xxdata = subset(xdata, aoi == "face" & (action == "PI" | action == "R" | action == "NC"))
+##delete cases in which we have absolute no fixations on the screen
+excluded = subset(xxdata, xxdata$time.fixations.screen == 0)
+xxdata = subset(xxdata, xxdata$time.fixations.screen != 0)
+
+hist(xxdata$aoi.time, breaks = 50)
+range(xxdata$aoi.time)
+
+sum(xxdata$time.fixations.screen == 0)
+
+##preliminary analysis for box and sex and rando order
+
+
+xx.fe.re=fe.re.tab(fe.model="aoi.time ~ action*child.adult + trial + box + trial.overall",
+                   re="(1|dyad.id) + (1|single.id) + (1|box)", data=xxdata, other.vars= c("time.fixations.screen", "prop.time"))
+xx.fe.re$summary
+t.data=xx.fe.re$data 
+str(t.data)
+
+#I have values 0 and 1 in my response, but it needs to be a little bit less than 1 or a little bit more than 0
+range(t.data$prop.time)
+hist(t.data$prop.time)
+t.data$t.prop.time = t.data$prop.time
+t.data$t.prop.time = (t.data$t.prop.time*(length(t.data$t.prop.time) - 1) + 0.5)/length(t.data$t.prop.time)
+hist(t.data$t.prop.time)
+range(t.data$t.prop.time)
+
+
+t.data$single.id.code = as.numeric(t.data$single.id)
+
+#centering variables included in random slope
+t.data$child.adult.code = t.data$child.adult.parent-mean(t.data$child.adult.parent)
+t.data$action.PI.code = t.data$action.PI-mean(t.data$action.PI)
+t.data$action.R.code = t.data$action.R-mean(t.data$action.R)
+t.data$z.aoi.time = scale(t.data$aoi.time)
+t.data$z.time.fixations.screen = scale(t.data$time.fixations.screen)
+t.data$z.trial = scale(t.data$trial)
+t.data$z.trial.overall = scale(t.data$trial.overall)
+
+
+contr= glmmTMBControl(optCtrl = list(iter.max = 500000, eval.max = 500000),
+                      profile = FALSE, collect = FALSE)
+full=glmmTMB(t.prop.time ~ (action*child.adult) + z.trial + 
+               (1 + (action.PI.code + action.R.code) +  z.trial.overall || single.id.code) +
+               (1 + child.adult.code || dyad.id) + 
+               (1 + z.trial || box), 
+             data = t.data, family = beta_family(link = "logit"), control = contr,  
+             weights = time.fixations.screen, 
+             REML = FALSE)
+
+tests=drop1p(model.res=full, para=F, data=t.data, contr=contr, n.cores=c("all-1", "all"), to.del=NULL, return.model.results=F)
+tests$drop1.res
+
+#testing assuptions
+#overdispersion
+overdisp.test(full)
+#distribution of random effects
+summary(full)$varcor
+ranef.diagn.plot(full)
+#colliniarity
+xx=lm(t.prop.time ~ (action + child.adult) + z.trial, weights = time.fixations.screen, 
+      data=t.data)
+library(car)
+vif(xx)
+#model stability
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/glmmTMB_stability.r") #function provided by Roger Mundry
+full.stab=glmmTMB.stab(model.res=full, contr=contr, ind.cases=F, para=F, data=t.data, use=NULL, n.cores=c("all-1", "all"), save.path=NULL, load.lib=T, lib.loc=.libPaths())
+full.stab$detailed$warnings
+xx = round(full.stab$summary[, -1], 3)
+dev.off()
+m.stab.plot(full.stab$summary[, -1])
+write.table(xx, "face.analysis.model.stability.txt",quote=FALSE, sep = "\t")
+xx ##model is stable
+
+null=glmmTMB(t.prop.time ~ 1 + 
+               (1 + (action.PI.code + action.R.code) +  z.trial.overall || single.id.code) +
+               (1 + child.adult.code || dyad.id) + 
+               (1 + z.trial || box), 
+             data = t.data, family = beta_family(link = "logit"), control = contr,  
+             weights = time.fixations.screen, REML = FALSE)
+anova(full, null, test="Chisq")
+
+source("/Users/HannaSchleihauf/Dropbox/Research/EVAClass/Functions/drop1_para_glmmtmb.r")
+tests=drop1p(model.res=full, para=F, data=t.data, contr=contr, n.cores=c("all-1", "all"), to.del=NULL, return.model.results=F)
+tests$drop1.res
+
+full1=glmmTMB(t.prop.time ~ (action + child.adult) + z.trial + 
+                (1 + (action.PI.code + action.R.code) +  z.trial.overall || single.id.code) +
+                (1 + child.adult.code || dyad.id) + 
+                (1 + z.trial || box), 
+              data = t.data, family = beta_family(link = "logit"), control = contr,  
+              weights = time.fixations.screen, REML = FALSE)
+tests1=drop1p(model.res=full1, para=F, data=t.data, contr=contr, n.cores=c("all-1", "all"), to.del=NULL, return.model.results=F)
+tests1$drop1.res
+round(tests1$drop1.res$Pr..Chisq., 3)
+
+##post hoc 
+## action
+
+emm = emmeans(full1,  ~ action)
+summary(emm, type = "response")  ##values for plot
+#plot(emm, by = "action", intervals = TRUE, type = "response")
+emmeans(full1, pairwise ~ action)
+summary(pairs(emm), type = "response")
+summary(pairs(regrid(emm)), type = "response")
+
+emmip(emm, ~ "action", type = "link")
+emmip(emm, ~ "action", type = "response")
+
+#plot(effect("action", full1))
+tapply(t.data$aoi.time, t.data$trial, mean)
+tapply(t.data$aoi.time, list(t.data$action, t.data$child.adult), mean)
+aggregate(t.data$aoi.time, list(t.data$child.adult, t.data$action, t.data$trial), mean)
+
+# conditions plot ----------------------------------------------------------
+##model für plot 
+plotmodel=glmmTMB(t.prop.time ~ (action + child.adult.code) + z.trial + 
+                    (1 + (action.PI.code + action.R.code) +  z.trial.overall || single.id.code) +
+                    (1 + child.adult.code || dyad.id) + 
+                    (1 + z.trial || box), 
+                  data = t.data, family = beta_family(link = "logit"), control = contr,  
+                  weights = time.fixations.screen, REML = FALSE)
+##bootstraps for plotmodel
+#boot.plot=boot.glmmTMB(model.res=plotmodel, data=t.data, excl.non.conv=T, nboots=1000, para=F, resol=100, level=0.95, use=c("action"), contr=contr, circ.var.name=NULL, circ.var=NULL, n.cores=c("all-1", "all"), save.path=NULL, load.lib=T, lib.loc=.libPaths(), set.all.effects.2.zero=F)
+#save.image("face.analysis")
+#table(boot.plot$ci.fitted$action)
+load("face.analysis")
+
+# because I cannot plot the offset term, I calculate the relative looking time
+xxdata$prob = xxdata$aoi.time/xxdata$time.fixations.screen
+t.data$prob = t.data$aoi.time/t.data$time.fixations.screen
+
+##model values in link space
+summary(plotmodel)$coefficients$cond[,1]
+b0 = summary(plotmodel)$coefficients$cond[1,1] # intercept
+XactionPI = summary(plotmodel)$coefficients$cond[2,1]
+XactionR = summary(plotmodel)$coefficients$cond[3,1]
+Xchild.adult.code  = summary(plotmodel)$coefficients$cond[4,1]
+Xz.trial = summary(plotmodel)$coefficients$cond[5,1]
+
+NC_logs <-  b0 
+PI_logs <-  b0 + XactionPI # the reference group
+R_logs  <-  b0 + XactionR
+
+# Compute the probibilities (this is what will actually get plotted):
+NC_probs <- plogis(NC_logs)
+PI_probs <- plogis(PI_logs)
+R_probs   <- plogis(R_logs)
+
+plot.data <- data.frame(NC=NC_probs, PI=PI_probs, R=R_probs)
+plot.data <- gather(plot.data, key=action, value=prob, c("NC", "PI", "R"))
+str(plot.data)
+
+round(boot.plot$ci.fitted$fitted, 3)
+
+library(ggplot2)
+# Scatterplot
+theme_set( theme_gray())  # pre-set the bw theme.
+g <- ggplot(xxdata, aes(x = action, y = prob, colour = action))
+g <- g + geom_jitter(width = 0.3, height = 0.025, alpha = 0.3)
+#confidence intervals
+g <- g + geom_errorbar(aes(x=c("NC"), 
+                           ymin=c(boot.plot$ci.fitted$lower.cl[boot.plot$ci.fitted$action == "NC"]),
+                           ymax=c(boot.plot$ci.fitted$upper.cl[boot.plot$ci.fitted$action == "NC"])),
+                       width=.125, colour="red4",
+                       position=position_dodge(0.9))
+g <- g + geom_errorbar(aes(x=c("PI"), 
+                      ymin=c(boot.plot$ci.fitted$lower.cl[boot.plot$ci.fitted$action == "PI"]),
+                      ymax=c(boot.plot$ci.fitted$upper.cl[boot.plot$ci.fitted$action == "PI"])),
+                  width=.125, colour="springgreen4",
+                  position=position_dodge(0.9))
+g <- g + geom_errorbar(aes(x=c("R"), 
+                      ymin=c(boot.plot$ci.fitted$lower.cl[boot.plot$ci.fitted$action == "R"]),
+                      ymax=c(boot.plot$ci.fitted$upper.cl[boot.plot$ci.fitted$action == "R"])),
+                  width=.125, colour="blue",
+                  position=position_dodge(0.9))
+g <- g + geom_crossbar(data=plot.data, aes(ymin = prob, ymax = prob),
+                       size=0.5,col= c("red4", "springgreen4", "blue"), width = .5)
+g <- g +
+  labs(subtitle="Face Looking time", 
+       y="Percentage of Fixation Time on the Model's Face", 
+       x="Action Type", 
+       title="Analysis 1: Eye-Tracking Analysis -\nExperimental Conditions")
+
+g <- g + theme(legend.position = "none")
+g <- g + theme(
+        axis.text.x = element_text(size = 10, face=NULL, 
+                                   margin = margin(t = 1, r = 0, b = 1, l = 0, 
+                                                   unit = "mm")), 
+        axis.text.y = element_text(size = 9, face=NULL,
+                                   margin = margin(t = 0, r = 1, b = 0, l = 1, 
+                                                   unit = "mm")),
+        axis.title.x = element_text(size = 10, face=NULL,
+                                    margin = margin(t = 2, r = 1, b = 0, l = 1, 
+                                                    unit = "mm")),
+        axis.title.y = element_text(size = 10, face=NULL,
+                                    margin = margin(t = 1, r = 1, b = 0, l = 0, 
+                                                    unit = "mm")))
+palette()
+g = g + scale_color_manual(values = c("#EE2C2C", "#43CD80", "#2297E6"))
+g = g + scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+g
+# 
+# # trial plot ----------------------------------------------------------
+# # model für plot 
+# plotmodel.trial=glmmTMB(aoi.time ~ ((action.PI.code + action.R.code)  + child.adult.code) + z.trial + offset(log(time.fixations.screen)) + 
+#                     (1 + (action.PI.code + action.R.code) + z.trial || single.id.code) +
+#                     (1 + child.adult.code || dyad.id), data = t.data, family = nbinom1(link = "log"), control = contr, REML = FALSE)
+# ##bootstraps for plotmodel
+# boot.plot.trial=boot.glmmTMB(model.res=plotmodel.trial, data=t.data, excl.non.conv=T, nboots=1000, para=F, resol=100, level=0.95, use=c("z.trial"), contr=contr, circ.var.name=NULL, circ.var=NULL, n.cores=c("all-1", "all"), save.path=NULL, load.lib=T, lib.loc=.libPaths(), set.all.effects.2.zero=F)
+# 
+# table(boot.plot.trial$ci.fitted$action)
+# save.image("face.analysis")
+# 
+# ##model values in link space
+# summary(plotmodel.trial)$coefficients$cond[,1]
+# b0 = summary(plotmodel.trial)$coefficients$cond[1,1] # intercept
+# XactionPI = summary(plotmodel.trial)$coefficients$cond[2,1]
+# XactionR = summary(plotmodel.trial)$coefficients$cond[3,1]
+# Xchild.adult.code  = summary(plotmodel.trial)$coefficients$cond[4,1]
+# Xtrial = summary(plotmodel.trial)$coefficients$cond[5,1]
+# 
+# ##First, decide what variable you want on your x-axis. That’s the only variable we’ll enter as a whole range. (The range we set here will determine the range on the x-axis of the final plot, by the way.)
+# 
+# Xtrial_range <- seq(from=min(t.data$z.trial), to=max(t.data$z.trial), length.out=1000)
+# range(Xtrial_range)
+# trial_logs = b0 + 
+#   Xtrial*Xtrial_range 
+# 
+# # Compute the probibilities (this is what will actually get plotted):
+# trial_probs <- exp(trial_logs)
+# 
+# plot.data <- data.frame(trialy=trial_probs, trialx=Xtrial_range)
+# str(plot.data)
+# 
+# library(ggplot2)
+# # Scatterplot
+# theme_set( theme_gray())  # pre-set the bw theme.
+# g <- ggplot(t.data, aes(x = z.trial, y = prob,  colour = action))
+# g <- g + geom_jitter(width = 0.5, height = 0.025, alpha = 0.3)
+# g <- g + scale_x_continuous(breaks = c(min(t.data$z.trial), median(t.data$z.trial), max(t.data$z.trial)), 
+#                             labels =  c("1", "2", "3"))
+# g <- g + geom_line(data = plot.data, aes(x = trialx, y = trialy), size = 1, colour = "grey50")
+# g <- g +
+# labs(subtitle="   ", 
+#      y="Percentage of Looking Time\n into the Model's Face", 
+#      x="Trial Number", 
+#      title="   ")
+# 
+# 
+# #confidence intervals
+# 
+# 
+# 
+# 
+#   
+# g <- g + theme(legend.title = element_blank())
+# g <- g + theme(
+#   axis.text.x = element_text(size = 10, face=NULL, 
+#                              margin = margin(t = 1, r = 0, b = 1, l = 0, 
+#                                              unit = "mm")), 
+#   axis.text.y = element_text(size = 9, face=NULL,
+#                              margin = margin(t = 0, r = 1, b = 0, l = 1, 
+#                                              unit = "mm")),
+#   axis.title.x = element_text(size = 10, face=NULL,
+#                               margin = margin(t = 2, r = 1, b = 0, l = 1, 
+#                                               unit = "mm")),
+#   axis.title.y = element_text(size = 10, face=NULL,
+#                               margin = margin(t = 1, r = 1, b = 0, l = 0, 
+#                                               unit = "mm")))

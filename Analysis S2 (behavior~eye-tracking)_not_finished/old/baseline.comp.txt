@@ -1,0 +1,13 @@
+orig	min	max
+(Intercept)	-20.164	-21.298	-19.969
+conditionexperimental	17.098	16.374	18.211
+action.typecontact	18.267	17.688	19.242
+child.adultchild	0.284	0.107	0.461
+conditionexperimental:action.typecontact	-15.677	-16.8	-15.136
+conditionexperimental:child.adultchild	1.479	1.187	2.052
+action.typecontact:child.adultchild	2.123	1.778	2.636
+conditionexperimental:action.typecontact:child.adultchild	-1.202	-1.727	-0.869
+single.id@(Intercept)@NA	1.038	0.851	1.199
+single.id@action.type.contact.code@NA	0	0	0
+dyad.id@(Intercept)@NA	0	0	0
+dyad.id@child.adult.code@NA	1.685	1.092	2.003
