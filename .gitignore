@@ -1,8 +1,7 @@
 # History files
-.Rhistory
-.Rapp.history
-.RData
-.Ruserdata
+*.Rhistory
+*.Rapp.history
+*.Ruserdata
 
 # Session Data files
 .RData
@@ -20,7 +19,7 @@
 /*.Rcheck/
 
 # RStudio files
-.Rproj.user/
+*.Rproj.user/
 
 # produced vignettes
 vignettes/*.html
